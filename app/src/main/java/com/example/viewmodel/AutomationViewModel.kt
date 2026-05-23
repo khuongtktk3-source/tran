@@ -85,6 +85,14 @@ class AutomationViewModel(application: Application) : AndroidViewModel(applicati
     var cropBottom by mutableStateOf(200)
     var showCropOverlay by mutableStateOf(false)
 
+    // Screenshot Cropper State Engine for real-device screenshot cropping
+    var cropperScreenshotType by mutableStateOf("rpg_game") // rpg_game, gold_miner, secure_login, custom
+    var customCropperBitmap by mutableStateOf<Bitmap?>(null)
+    var cropperLeft by mutableStateOf(100f)
+    var cropperTop by mutableStateOf(150f)
+    var cropperWidth by mutableStateOf(120f)
+    var cropperHeight by mutableStateOf(80f)
+
     // Compare Lab states (Interactive image testing panel)
     var labSelectedTemplate by mutableStateOf<TemplateEntity?>(null)
     var labSimilarityResult by mutableStateOf<Float?>(null)
@@ -331,14 +339,32 @@ class AutomationViewModel(application: Application) : AndroidViewModel(applicati
     // ==========================================
     // 5. DRAGGABLE BUBBLE ACTIONS
     // ==========================================
-    fun toggleBubbleOverlay() {
+    fun toggleBubbleOverlay(context: android.content.Context? = null) {
         isBubbleVisible = !isBubbleVisible
         if (isBubbleVisible) {
             addLog("Đã kích hoạt Bong Bóng Nổi dạt biên screen!")
+            context?.let { ctx ->
+                try {
+                    val intent = android.content.Intent(ctx, com.example.engine.FloatingBubbleService::class.java)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        ctx.startForegroundService(intent)
+                    } else {
+                        ctx.startService(intent)
+                    }
+                } catch (e: Exception) {
+                    addLog("Lưu ý: Chưa cấp quyền vẽ lên ứng dụng khác cho JBit, đang chạy bong bóng mô phỏng!")
+                }
+            }
         } else {
             addLog("Đã tắt Bong Bóng Nổi.")
             isBubbleExpanded = false
             bubbleRecordingStep = false
+            context?.let { ctx ->
+                try {
+                    val intent = android.content.Intent(ctx, com.example.engine.FloatingBubbleService::class.java)
+                    ctx.stopService(intent)
+                } catch (e: Exception) {}
+            }
         }
     }
 
@@ -543,6 +569,117 @@ class AutomationViewModel(application: Application) : AndroidViewModel(applicati
                 e.printStackTrace()
             }
         }
+    }
+
+    // Direct cropped bitmap save logic from dynamic screenshot selection activity
+    fun saveCroppedCustomTemplate(name: String, croppedBitmap: Bitmap) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val base64Str = ImageMatcher.bitmapToBase64(croppedBitmap)
+            val newTemplate = TemplateEntity(
+                id = 0,
+                name = name.trim().replace(" ", "_").ifEmpty { "cropped_object_${System.currentTimeMillis()}" },
+                imageBase64 = base64Str,
+                width = croppedBitmap.width,
+                height = croppedBitmap.height
+            )
+            repository.saveTemplate(newTemplate)
+            withContext(Dispatchers.Main) {
+                addLog("📷 Đã tự động cắt ảnh mẫu '${newTemplate.name}' (${croppedBitmap.width}x${croppedBitmap.height} px) và thêm vào thư viện!")
+            }
+        }
+    }
+
+    fun generateMockScreenshot(type: String): Bitmap {
+        val width = 500
+        val height = 800
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint()
+
+        when (type) {
+            "rpg_game" -> {
+                canvas.drawColor(Color.rgb(15, 10, 30))
+                paint.color = Color.rgb(220, 30, 30)
+                canvas.drawRect(20f, 30f, 250f, 50f, paint)
+                paint.color = Color.WHITE
+                paint.textSize = 14f
+                canvas.drawText("HP: 2500 / 2500", 30f, 45f, paint)
+
+                paint.color = Color.YELLOW
+                paint.textSize = 24f
+                canvas.drawText("👹 HỎA LONG CHÚA [Level 100]", 100f, 150f, paint)
+
+                paint.color = Color.rgb(180, 50, 50)
+                canvas.drawCircle(250f, 300f, 80f, paint)
+                paint.color = Color.BLACK
+                canvas.drawCircle(220f, 280f, 10f, paint)
+                canvas.drawCircle(280f, 280f, 10f, paint)
+
+                paint.color = Color.rgb(33, 150, 243)
+                canvas.drawCircle(400f, 700f, 60f, paint)
+                paint.color = Color.WHITE
+                paint.textSize = 16f
+                canvas.drawText("CHIÊU 1", 375f, 705f, paint)
+
+                paint.color = Color.rgb(76, 175, 80)
+                canvas.drawCircle(250f, 720f, 45f, paint)
+                paint.color = Color.WHITE
+                paint.textSize = 14f
+                canvas.drawText("BƠM MÁU", 215f, 725f, paint)
+            }
+            "gold_miner" -> {
+                canvas.drawColor(Color.rgb(45, 30, 15))
+                paint.color = Color.rgb(220, 180, 120)
+                canvas.drawRect(220f, 20f, 280f, 80f, paint)
+
+                paint.color = Color.rgb(253, 184, 19)
+                canvas.drawCircle(120f, 350f, 40f, paint)
+                canvas.drawCircle(350f, 450f, 60f, paint)
+
+                paint.color = Color.GRAY
+                canvas.drawCircle(250f, 550f, 50f, paint)
+
+                paint.color = Color.rgb(255, 152, 0)
+                canvas.drawRect(150f, 700f, 350f, 760f, paint)
+                paint.color = Color.WHITE
+                paint.textSize = 18f
+                canvas.drawText("🎁 NHẬN THƯỞNG", 175f, 738f, paint)
+            }
+            "secure_login" -> {
+                canvas.drawColor(Color.rgb(18, 18, 29))
+                paint.color = Color.WHITE
+                paint.textSize = 28f
+                canvas.drawText("🔒 SAFE OTP CORE", 120f, 100f, paint)
+
+                paint.color = Color.rgb(44, 44, 62)
+                canvas.drawRect(50f, 250f, 450f, 310f, paint)
+                paint.color = Color.GRAY
+                paint.textSize = 15f
+                canvas.drawText("Tên đăng nhập / Email", 70f, 288f, paint)
+
+                paint.color = Color.rgb(44, 44, 62)
+                canvas.drawRect(50f, 350f, 450f, 410f, paint)
+                paint.color = Color.GRAY
+                canvas.drawText("Mật khẩu bảo mật", 70f, 388f, paint)
+
+                paint.color = Color.rgb(33, 150, 243)
+                canvas.drawRect(80f, 480f, 120f, 520f, paint)
+                paint.color = Color.WHITE
+                canvas.drawText("Xác minh không phải Robot", 140f, 505f, paint)
+
+                paint.color = Color.rgb(57, 255, 20)
+                canvas.drawRect(50f, 620f, 450f, 690f, paint)
+                paint.color = Color.BLACK
+                paint.textSize = 20f
+                canvas.drawText(" ĐĂNG NHẬP NGAY", 150f, 663f, paint)
+            }
+            else -> {
+                canvas.drawColor(Color.LTGRAY)
+                paint.color = Color.RED
+                canvas.drawCircle(250f, 400f, 150f, paint)
+            }
+        }
+        return bmp
     }
 
     fun deleteTemplate(id: Int) {

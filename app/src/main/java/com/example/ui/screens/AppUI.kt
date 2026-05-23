@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -149,6 +150,7 @@ fun AppUI(viewModel: AutomationViewModel) {
                 "template_manager" -> TemplateManagerScreen(viewModel)
                 "script_market" -> ScriptMarketScreen(viewModel)
                 "security_lab" -> SecurityLabScreen(viewModel)
+                "screenshot_cropper" -> ScreenshotCropperScreen(viewModel)
             }
         }
     }
@@ -1747,8 +1749,9 @@ fun MacroRunnerScreen(viewModel: AutomationViewModel) {
                 Spacer(modifier = Modifier.width(6.dp))
 
                 // Toggle Floating Bubble Overlay
+                val bubbleContext = androidx.compose.ui.platform.LocalContext.current
                 Button(
-                    onClick = { viewModel.toggleBubbleOverlay() },
+                    onClick = { viewModel.toggleBubbleOverlay(bubbleContext) },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (viewModel.isBubbleVisible) Color(0xFF0F3A41) else Color(0xFF2E2E3E)
                     ),
@@ -1853,8 +1856,21 @@ fun TemplateManagerScreen(viewModel: AutomationViewModel) {
             text = "Nạp và quản lý các ảnh con để so khớp mẫu trong JBitMacro.",
             color = SoftGrey,
             fontSize = 11.sp,
-            modifier = Modifier.padding(bottom = 16.dp)
+            modifier = Modifier.padding(bottom = 12.dp)
         )
+
+        Button(
+            onClick = { viewModel.navigateTo("screenshot_cropper") },
+            colors = ButtonDefaults.buttonColors(containerColor = NeonAmber),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+        ) {
+            Icon(Icons.Default.Crop, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("TỰ CẮT ẢNH MẪU HOÀN TOÀN TỰ ĐỘNG", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
 
         if (templates.isEmpty()) {
             Box(
@@ -2827,6 +2843,332 @@ fun SecurityLabScreen(viewModel: AutomationViewModel) {
                 .padding(4.dp)
         ) {
             CompareLabScreen(viewModel)
+        }
+    }
+}
+
+@Composable
+fun ScreenshotCropperScreen(viewModel: AutomationViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var inputName by remember { mutableStateOf("") }
+    var selectCustomUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    
+    // Choose selected screenshot frame
+    val activeBmp = remember(viewModel.cropperScreenshotType, selectCustomUri) {
+        if (viewModel.cropperScreenshotType == "custom" && selectCustomUri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(selectCustomUri!!)
+                android.graphics.BitmapFactory.decodeStream(inputStream)
+            } catch (e: Exception) {
+                viewModel.generateMockScreenshot("rpg_game")
+            }
+        } else {
+            viewModel.generateMockScreenshot(viewModel.cropperScreenshotType)
+        }
+    }
+
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            selectCustomUri = uri
+            viewModel.cropperScreenshotType = "custom"
+        }
+    }
+
+    // Coerce crop parameters inside chosen bitmap dimensions
+    val maxW = activeBmp.width.toFloat()
+    val maxH = activeBmp.height.toFloat()
+
+    val cropL = viewModel.cropperLeft.coerceIn(0f, maxW - 20f)
+    val cropT = viewModel.cropperTop.coerceIn(0f, maxH - 20f)
+    val cropW = viewModel.cropperWidth.coerceIn(20f, maxW - cropL)
+    val cropH = viewModel.cropperHeight.coerceIn(20f, maxH - cropT)
+
+    // Generate current live crop preview bitmap
+    val liveCroppedBmp = remember(activeBmp, cropL, cropT, cropW, cropH) {
+        try {
+            android.graphics.Bitmap.createBitmap(
+                activeBmp, 
+                cropL.toInt(), 
+                cropT.toInt(), 
+                cropW.toInt(), 
+                cropH.toInt()
+            )
+        } catch (e: Exception) {
+            activeBmp
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        // Top Back and Title Header Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { viewModel.navigateTo("template_manager") }) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Trang chủ", tint = Color.WHITE)
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+            Column {
+                Text(
+                    text = "BÀN TỰ CẮT ẢNH CHỤP MÀN HÌNH",
+                    color = Color.WHITE,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Lập trình so khớp mẫu bằng cách tự kéo cắt rương, quái, nút bấm vật lý",
+                    color = SoftGrey,
+                    fontSize = 11.sp
+                )
+            }
+        }
+
+        // Section A: Source Select Options Cards
+        Text(
+            text = "BƯỚC 1: LỰA CHỌN ẢNH CHỤP MÀN HÌNH",
+            color = NeonCyan,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                "rpg_game" to "🎮 Game RPG",
+                "gold_miner" to "👑 Đào Vàng",
+                "secure_login" to "🔒 Định Danh Form",
+                "custom" to "📁 Tải file máy"
+            ).forEach { (typeKey, labelStr) ->
+                val selected = viewModel.cropperScreenshotType == typeKey
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            if (typeKey == "custom") {
+                                launcher.launch("image/*")
+                            } else {
+                                viewModel.cropperScreenshotType = typeKey
+                            }
+                        },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (selected) Color(0xFF132D28) else SpaceCardBg
+                    ),
+                    border = BorderStroke(1.dp, if (selected) NeonGreen else Color(0xFF232335))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = labelStr,
+                            color = if (selected) Color.White else SoftGrey,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+
+        // Section B: Bounding Box Mask Preview
+        Text(
+            text = "BƯỚC 2: KÉO KHUNG ĐỂ CẮT ĐỐI TƯỢNG SO KHỚP",
+            color = NeonCyan,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(280.dp)
+                .background(Color.Black, RoundedCornerShape(8.dp))
+                .border(BorderStroke(1.dp, Color(0xFF232335)), RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            // Render full screenshot behind active Orange glowing crop border overlay
+            Box(
+                modifier = Modifier
+                    .size(230.dp, 260.dp)
+            ) {
+                Image(
+                    bitmap = activeBmp.asImageBitmap(),
+                    contentDescription = "Bản đồ nguồn",
+                    contentScale = ContentScale.FillBounds,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // Render orange crop outline overlay programmatically sized inside the image container bounds
+                val normalizedLeft = (cropL / maxW) * 230
+                val normalizedTop = (cropT / maxH) * 260
+                val normalizedWidth = (cropW / maxW) * 230
+                val normalizedHeight = (cropH / maxH) * 260
+
+                Box(
+                    modifier = Modifier
+                        .absoluteOffset(x = normalizedLeft.dp, y = normalizedTop.dp)
+                        .size(normalizedWidth.dp, normalizedHeight.dp)
+                        .border(BorderStroke(2.dp, NeonAmber), RoundedCornerShape(2.dp))
+                        .background(Color.Yellow.copy(alpha = 0.15f))
+                ) {
+                    // Small size overlay label
+                    Text(
+                        text = "VÙNG CẮT",
+                        color = NeonAmber,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .background(Color.Black)
+                            .padding(horizontal = 2.dp)
+                            .align(Alignment.TopStart)
+                    )
+                }
+            }
+        }
+
+        // Section C: Sliders to Adjust Geometry
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            colors = CardDefaults.cardColors(containerColor = SpaceCardBg)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = "⚙️ ĐIỀU CHỈNH KÍCH THƯỚC KHUNG",
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                // Slider X
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Trái (X): ${cropL.toInt()}px", color = SoftGrey, fontSize = 10.sp, modifier = Modifier.width(90.dp))
+                    Slider(
+                        value = cropL,
+                        onValueChange = { viewModel.cropperLeft = it },
+                        valueRange = 0f..(maxW - 20f),
+                        modifier = Modifier.weight(1f),
+                        colors = SliderDefaults.colors(thumbColor = NeonAmber, activeTrackColor = NeonAmber)
+                    )
+                }
+
+                // Slider Y
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Trên (Y): ${cropT.toInt()}px", color = SoftGrey, fontSize = 10.sp, modifier = Modifier.width(90.dp))
+                    Slider(
+                        value = cropT,
+                        onValueChange = { viewModel.cropperTop = it },
+                        valueRange = 0f..(maxH - 20f),
+                        modifier = Modifier.weight(1f),
+                        colors = SliderDefaults.colors(thumbColor = NeonAmber, activeTrackColor = NeonAmber)
+                    )
+                }
+
+                // Slider Width
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Rộng (W): ${cropW.toInt()}px", color = SoftGrey, fontSize = 10.sp, modifier = Modifier.width(90.dp))
+                    Slider(
+                        value = cropW,
+                        onValueChange = { viewModel.cropperWidth = it },
+                        valueRange = 20f..(maxW - cropL),
+                        modifier = Modifier.weight(1f),
+                        colors = SliderDefaults.colors(thumbColor = NeonCyan, activeTrackColor = NeonCyan)
+                    )
+                }
+
+                // Slider Height
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Cao (H): ${cropH.toInt()}px", color = SoftGrey, fontSize = 10.sp, modifier = Modifier.width(90.dp))
+                    Slider(
+                        value = cropH,
+                        onValueChange = { viewModel.cropperHeight = it },
+                        valueRange = 20f..(maxH - cropT),
+                        modifier = Modifier.weight(1f),
+                        colors = SliderDefaults.colors(thumbColor = NeonCyan, activeTrackColor = NeonCyan)
+                    )
+                }
+            }
+        }
+
+        // Section D: Visual Live Snippet & Save Registry
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Cropped Live Thumbnail preview
+            Card(
+                modifier = Modifier
+                    .size(90.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Black),
+                border = BorderStroke(1.dp, NeonAmber)
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Image(
+                        bitmap = liveCroppedBmp.asImageBitmap(),
+                        contentDescription = "Live Crop Preview",
+                        modifier = Modifier.size(70.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+            }
+
+            // Input fields and submission Button
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(
+                    value = inputName,
+                    onValueChange = { inputName = it },
+                    label = { Text("Tên Ảnh Mẫu (vd: nut_vong)") },
+                    textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        focusedBorderColor = NeonCyan,
+                        unfocusedBorderColor = Color(0xFF232335)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Button(
+                    onClick = {
+                        if (inputName.trim().isNotEmpty()) {
+                            viewModel.saveCroppedCustomTemplate(inputName, liveCroppedBmp)
+                            inputName = ""
+                            viewModel.navigateTo("template_manager")
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonGreen),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("LƯU TRỮ VÀO THƯ VIỆN", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
