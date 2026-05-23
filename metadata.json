@@ -1,0 +1,8 @@
+{
+  "name": "Image Macro Automation",
+  "description": "Chuyên gia thiết lập script tự động hóa (macro) bằng công nghệ so sánh ảnh chuyên sâu, lấy cảm hứng từ JBitMacro.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
